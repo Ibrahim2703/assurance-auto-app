@@ -25,7 +25,7 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '17'
+        java-version: '11'  # Changed from 17 to 11 for better compatibility
     
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
@@ -96,6 +96,10 @@ jobs:
         
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         
+        # Add JVM options to handle JAXB
+        android.gradle_dependencies = com.sun.xml.bind:jaxb-core:2.3.0.1, com.sun.xml.bind:jaxb-impl:2.3.0.1, javax.xml.bind:jaxb-api:2.3.0
+        android.add_jars = 
+        
         [buildozer]
         log_level = 2
         warn_on_root = 1
@@ -160,6 +164,9 @@ jobs:
         export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
         export ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME
         export PATH=$PATH:$ANDROID_SDK_ROOT/tools:$ANDROID_SDK_ROOT/platform-tools
+        
+        # Add JVM options to handle missing JAXB
+        export GRADLE_OPTS="-Dorg.gradle.jvmargs=--add-modules=java.xml.bind"
         
         # Accepter les licences
         yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager --licenses || true
