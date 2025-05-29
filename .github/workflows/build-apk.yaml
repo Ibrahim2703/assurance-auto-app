@@ -25,13 +25,20 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '17'  # Android SDK tools require JDK 17+
+        java-version: '17'
     
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
-      env:
-        JAVA_HOME: ${{ env.JAVA_HOME }}
-        SKIP_JDK_VERSION_CHECK: false
+      with:
+        api-level: 33
+        ndk-version: '25.2.9519653'
+        cmake-version: '3.22.1'
+    
+    - name: Accept Android SDK licenses
+      run: |
+        echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses
+        echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "platforms;android-33"
+        echo "y" | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.2"
     
     - name: Install system dependencies
       run: |
@@ -54,15 +61,42 @@ jobs:
           zlib1g-dev \
           libgstreamer1.0 \
           gstreamer1.0-plugins-base \
-          gstreamer1.0-plugins-good
+          gstreamer1.0-plugins-good \
+          autoconf \
+          libtool \
+          pkg-config
     
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install buildozer
+        pip install buildozer==1.5.0
         pip install cython==0.29.33
         pip install kivymd
         pip install kivy[base]
+    
+    - name: Create main.py if not exists
+      run: |
+        if [ ! -f "main.py" ]; then
+          cat > main.py << 'EOF'
+        from kivymd.app import MDApp
+        from kivymd.uix.label import MDLabel
+        from kivymd.uix.screen import MDScreen
+
+        class AssuranceAutoApp(MDApp):
+            def build(self):
+                screen = MDScreen()
+                label = MDLabel(
+                    text="Assurance Auto",
+                    halign="center",
+                    theme_text_color="Primary"
+                )
+                screen.add_widget(label)
+                return screen
+
+        if __name__ == "__main__":
+            AssuranceAutoApp().run()
+        EOF
+        fi
     
     - name: Create buildozer.spec
       run: |
@@ -74,22 +108,19 @@ jobs:
         
         source.dir = .
         source.include_exts = py,png,jpg,kv,atlas,json
+        source.exclude_dirs = tests, bin, venv, .git, __pycache__
         
         version = 1.0
         
-        requirements = python3,kivy,kivymd,pillow,requests
+        requirements = python3,kivy==2.1.0,kivymd,pillow,requests,hostpython3
         
-        [buildozer]
-        log_level = 2
-        
-        [app]
         presplash.filename = %(source.dir)s/presplash.png
         icon.filename = %(source.dir)s/icon.png
         
         orientation = portrait
-        osx.python_version = 3
-        osx.kivy_version = 1.9.1
         fullscreen = 0
+        
+        # Android specific
         android.minapi = 21
         android.api = 33
         android.ndk = 25b
@@ -99,10 +130,8 @@ jobs:
         
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         
-        # Add JVM options to handle JAXB and newer Java compatibility
-        android.gradle_dependencies = com.sun.xml.bind:jaxb-core:2.3.0.1, com.sun.xml.bind:jaxb-impl:2.3.0.1, javax.xml.bind:jaxb-api:2.3.0
-        android.add_jars = 
-        android.add_compile_options = --add-modules ALL-SYSTEM 
+        # Java compatibility fixes
+        android.gradle_dependencies = com.android.support:support-v4:28.0.0
         
         [buildozer]
         log_level = 2
@@ -111,10 +140,8 @@ jobs:
     
     - name: Create default icon and presplash
       run: |
-        # Créer une icône simple si elle n'existe pas
-        if [ ! -f "icon.png" ]; then
-          python3 -c "
-        from PIL import Image, ImageDraw, ImageFont
+        python3 -c "
+        from PIL import Image, ImageDraw
         import os
         
         # Créer une icône simple
@@ -122,29 +149,18 @@ jobs:
         img = Image.new('RGBA', size, (33, 150, 243, 255))  # Bleu Material
         draw = ImageDraw.Draw(img)
         
-        # Dessiner un cercle
+        # Dessiner un cercle blanc
         margin = 50
         draw.ellipse([margin, margin, size[0]-margin, size[1]-margin], fill=(255, 255, 255, 255))
         
-        # Ajouter du texte
-        try:
-            font = ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 60)
-        except:
-            font = ImageFont.load_default()
-        
-        text = '🚗'
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        x = (size[0] - text_width) // 2
-        y = (size[1] - text_height) // 2
-        draw.text((x, y), text, fill=(33, 150, 243, 255), font=font)
+        # Dessiner un cercle plus petit au centre
+        center_margin = 150
+        draw.ellipse([center_margin, center_margin, size[0]-center_margin, size[1]-center_margin], fill=(33, 150, 243, 255))
         
         img.save('icon.png')
-        img.resize((512, 512)).save('presplash.png')
+        img.save('presplash.png')
         print('Icônes créées avec succès')
         "
-        fi
     
     - name: Cache Buildozer global directory
       uses: actions/cache@v3
@@ -156,40 +172,55 @@ jobs:
       uses: actions/cache@v3
       with:
         path: .buildozer
-        key: buildozer-${{ hashFiles('buildozer.spec') }}-${{ hashFiles('main.py') }}
+        key: buildozer-${{ hashFiles('buildozer.spec') }}-${{ hashFiles('**/*.py') }}
         restore-keys: |
           buildozer-${{ hashFiles('buildozer.spec') }}-
           buildozer-
     
+    - name: Set Android environment variables
+      run: |
+        echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+        echo "PATH=$PATH:$ANDROID_SDK_ROOT/tools:$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_ENV
+    
+    - name: Initialize Buildozer
+      run: |
+        buildozer android clean || true
+    
     - name: Build APK with Buildozer
       run: |
-        # Configuration des variables d'environnement
-        export ANDROID_HOME=$ANDROID_SDK_ROOT
-        export ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
-        export ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME
-        export PATH=$PATH:$ANDROID_SDK_ROOT/tools:$ANDROID_SDK_ROOT/platform-tools
-        
-        # Add JVM options to handle JAXB for newer Java versions
-        export GRADLE_OPTS="-Dorg.gradle.jvmargs=--add-modules=ALL-SYSTEM --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.desktop/java.awt.font=ALL-UNNAMED"
-        
-        # Accepter les licences
-        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        # Configuration JVM pour Java 17
+        export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m"
+        export JAVA_OPTS="-Xmx2048m"
         
         # Build APK
-        buildozer android debug
+        buildozer -v android debug
+    
+    - name: List generated files
+      run: |
+        echo "Contenu du répertoire bin:"
+        ls -la bin/ || echo "Répertoire bin non trouvé"
+        echo "Contenu du répertoire .buildozer:"
+        find .buildozer -name "*.apk" -type f || echo "Aucun APK trouvé dans .buildozer"
     
     - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
         name: apk-debug
-        path: bin/*.apk
+        path: |
+          bin/*.apk
+          .buildozer/android/platform/build-*/dists/*/bin/*.apk
         retention-days: 30
+      if: always()
     
     - name: Upload APK to Release (if tag)
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v1
       with:
-        files: bin/*.apk
+        files: |
+          bin/*.apk
+          .buildozer/android/platform/build-*/dists/*/bin/*.apk
         draft: false
         prerelease: false
       env:
