@@ -9,7 +9,7 @@ source.exclude_dirs = tests, bin, venv, .git, __pycache__, .buildozer
 
 version = 1.0
 
-requirements = python3,kivy==2.1.0,kivymd,pillow,requests,hostpython3
+requirements = python3,kivy==2.1.0,kivymd==1.1.1,pillow,requests
 
 presplash.filename = %(source.dir)s/presplash.png
 icon.filename = %(source.dir)s/icon.png
