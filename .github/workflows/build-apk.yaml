@@ -25,10 +25,13 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
-        java-version: '11'  # Changed from 17 to 11 for better compatibility
+        java-version: '17'  # Android SDK tools require JDK 17+
     
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
+      env:
+        JAVA_HOME: ${{ env.JAVA_HOME }}
+        SKIP_JDK_VERSION_CHECK: false
     
     - name: Install system dependencies
       run: |
@@ -96,9 +99,10 @@ jobs:
         
         android.permissions = INTERNET,ACCESS_NETWORK_STATE,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE
         
-        # Add JVM options to handle JAXB
+        # Add JVM options to handle JAXB and newer Java compatibility
         android.gradle_dependencies = com.sun.xml.bind:jaxb-core:2.3.0.1, com.sun.xml.bind:jaxb-impl:2.3.0.1, javax.xml.bind:jaxb-api:2.3.0
         android.add_jars = 
+        android.add_compile_options = --add-modules ALL-SYSTEM 
         
         [buildozer]
         log_level = 2
@@ -165,11 +169,11 @@ jobs:
         export ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME
         export PATH=$PATH:$ANDROID_SDK_ROOT/tools:$ANDROID_SDK_ROOT/platform-tools
         
-        # Add JVM options to handle missing JAXB
-        export GRADLE_OPTS="-Dorg.gradle.jvmargs=--add-modules=java.xml.bind"
+        # Add JVM options to handle JAXB for newer Java versions
+        export GRADLE_OPTS="-Dorg.gradle.jvmargs=--add-modules=ALL-SYSTEM --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.desktop/java.awt.font=ALL-UNNAMED"
         
         # Accepter les licences
-        yes | $ANDROID_SDK_ROOT/tools/bin/sdkmanager --licenses || true
+        yes | $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --licenses || true
         
         # Build APK
         buildozer android debug
